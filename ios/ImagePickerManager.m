@@ -244,11 +244,11 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
             if (imageURL && [[imageURL absoluteString] rangeOfString:@"ext=GIF"].location != NSNotFound) {
                 fileName = [tempFileName stringByAppendingString:@".gif"];
             }
-            else if ([[[self.options objectForKey:@"imageFileType"] stringValue] isEqualToString:@"png"]) {
-                fileName = [tempFileName stringByAppendingString:@".png"];
+            else if ([self willCompress]) {
+                fileName = [tempFileName stringByAppendingString:@".jpg"];
             }
             else {
-                fileName = [tempFileName stringByAppendingString:@".jpg"];
+                fileName = [tempFileName stringByAppendingString:@".png"];
             }
         }
         else {
@@ -316,7 +316,6 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
                     Byte *buffer = (Byte*)malloc(rep.size);
                     NSUInteger buffered = [rep getBytes:buffer fromOffset:0.0 length:rep.size error:nil];
                     NSData *data = [NSData dataWithBytesNoCopy:buffer length:buffered freeWhenDone:YES];
-                    [data writeToFile:path atomically:YES];
 
                     NSMutableDictionary *gifResponse = [[NSMutableDictionary alloc] init];
                     [gifResponse setObject:@(image.size.width) forKey:@"width"];
@@ -330,14 +329,8 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
                         [gifResponse setObject:dataString forKey:@"data"];
                     }
 
-                    NSURL *fileURL = [NSURL fileURLWithPath:path];
-                    [gifResponse setObject:[fileURL absoluteString] forKey:@"uri"];
-
-                    NSNumber *fileSizeValue = nil;
-                    NSError *fileSizeError = nil;
-                    [fileURL getResourceValue:&fileSizeValue forKey:NSURLFileSizeKey error:&fileSizeError];
-                    if (fileSizeValue){
-                        [gifResponse setObject:fileSizeValue forKey:@"fileSize"];
+                    if ([self willStoreMedia]) {
+                        [self storeMediaAtPath:path data:data response:gifResponse];
                     }
 
                     self.callback(@[gifResponse]);
@@ -347,7 +340,11 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
                 return;
             }
 
-            image = [self fixOrientation:image];  // Rotate the image for upload to web
+            // fix is really only needed for png
+            // see: https://stackoverflow.com/questions/3554244/uiimagepngrepresentation-issues-images-rotated-by-90-degrees
+            if ([[self.options valueForKey:@"fixOrientation"] boolValue] != NO) {
+                image = [self fixOrientation:image];  // Rotate the image for upload to web
+            }
 
             // If needed, downscale image
             float maxWidth = image.size.width;
@@ -361,13 +358,12 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
             image = [self downscaleImageIfNecessary:image maxWidth:maxWidth maxHeight:maxHeight];
 
             NSData *data;
-            if ([[[self.options objectForKey:@"imageFileType"] stringValue] isEqualToString:@"png"]) {
-                data = UIImagePNGRepresentation(image);
-            }
-            else {
+            if ([self willCompress]) {
                 data = UIImageJPEGRepresentation(image, [[self.options valueForKey:@"quality"] floatValue]);
             }
-            [data writeToFile:path atomically:YES];
+            else {
+                data = UIImagePNGRepresentation(image);
+            }
 
             if (![[self.options objectForKey:@"noData"] boolValue]) {
                 NSString *dataString = [data base64EncodedStringWithOptions:0]; // base64 encoded image string
@@ -376,21 +372,15 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
 
             BOOL vertical = (image.size.width < image.size.height) ? YES : NO;
             [self.response setObject:@(vertical) forKey:@"isVertical"];
-            NSURL *fileURL = [NSURL fileURLWithPath:path];
-            NSString *filePath = [fileURL absoluteString];
-            [self.response setObject:filePath forKey:@"uri"];
+
+            if ([self willStoreMedia]) {
+                [self storeMediaAtPath:path data:data response:self.response];
+            }
 
             // add ref to the original image
             NSString *origURL = [imageURL absoluteString];
             if (origURL) {
               [self.response setObject:origURL forKey:@"origURL"];
-            }
-
-            NSNumber *fileSizeValue = nil;
-            NSError *fileSizeError = nil;
-            [fileURL getResourceValue:&fileSizeValue forKey:NSURLFileSizeKey error:&fileSizeError];
-            if (fileSizeValue){
-                [self.response setObject:fileSizeValue forKey:@"fileSize"];
             }
 
             [self.response setObject:@(image.size.width) forKey:@"width"];
@@ -683,6 +673,34 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
     else {
         NSLog(@"Error setting skip backup attribute: file not found");
         return @NO;
+    }
+}
+
+- (BOOL)willCompress {
+  return ![[[self.options objectForKey:@"imageFileType"] stringValue] isEqualToString:@"png"];
+}
+
+- (BOOL)willStoreMedia
+{
+    NSDictionary *storageOptions = [self.options objectForKey:@"storageOptions"];
+    if (storageOptions && [[storageOptions objectForKey:@"store"] boolValue] == NO) {
+        return NO;
+    }
+
+    return YES;
+}
+
+- (void)storeMediaAtPath:(NSString*)path data:(NSData*)data response:(NSMutableDictionary*)response
+{
+    [data writeToFile:path atomically:YES];
+    NSURL *fileURL = [NSURL fileURLWithPath:path];
+    [response setObject:[fileURL absoluteString] forKey:@"uri"];
+
+    NSNumber *fileSizeValue = nil;
+    NSError *fileSizeError = nil;
+    [fileURL getResourceValue:&fileSizeValue forKey:NSURLFileSizeKey error:&fileSizeError];
+    if (fileSizeValue){
+        [response setObject:fileSizeValue forKey:@"fileSize"];
     }
 }
 
