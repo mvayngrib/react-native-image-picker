@@ -244,11 +244,11 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
             if (imageURL && [[imageURL absoluteString] rangeOfString:@"ext=GIF"].location != NSNotFound) {
                 fileName = [tempFileName stringByAppendingString:@".gif"];
             }
-            else if ([[[self.options objectForKey:@"imageFileType"] stringValue] isEqualToString:@"png"]) {
-                fileName = [tempFileName stringByAppendingString:@".png"];
+            else if ([self willCompress]) {
+                fileName = [tempFileName stringByAppendingString:@".jpg"];
             }
             else {
-                fileName = [tempFileName stringByAppendingString:@".jpg"];
+                fileName = [tempFileName stringByAppendingString:@".png"];
             }
         }
         else {
@@ -317,7 +317,6 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
                     Byte *buffer = (Byte*)malloc(repSize);
                     NSUInteger buffered = [rep getBytes:buffer fromOffset:0.0 length:repSize error:nil];
                     NSData *data = [NSData dataWithBytesNoCopy:buffer length:buffered freeWhenDone:YES];
-                    [data writeToFile:path atomically:YES];
 
                     NSMutableDictionary *gifResponse = [[NSMutableDictionary alloc] init];
                     [gifResponse setObject:@(originalImage.size.width) forKey:@"width"];
@@ -331,14 +330,8 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
                         [gifResponse setObject:dataString forKey:@"data"];
                     }
 
-                    NSURL *fileURL = [NSURL fileURLWithPath:path];
-                    [gifResponse setObject:[fileURL absoluteString] forKey:@"uri"];
-
-                    NSNumber *fileSizeValue = nil;
-                    NSError *fileSizeError = nil;
-                    [fileURL getResourceValue:&fileSizeValue forKey:NSURLFileSizeKey error:&fileSizeError];
-                    if (fileSizeValue){
-                        [gifResponse setObject:fileSizeValue forKey:@"fileSize"];
+                    if ([self willStoreMedia]) {
+                        [self storeMediaAtPath:path data:data response:gifResponse];
                     }
 
                     self.callback(@[gifResponse]);
@@ -348,38 +341,42 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
                 return;
             }
 
-            UIImage *editedImage = [self fixOrientation:originalImage];  // Rotate the image for upload to web
+            // fix is really only needed for png
+            // see: https://stackoverflow.com/questions/3554244/uiimagepngrepresentation-issues-images-rotated-by-90-degrees
+            if ([[self.options valueForKey:@"fixOrientation"] boolValue] != NO) {
+                image = [self fixOrientation:image];  // Rotate the image for upload to web
+            }
 
             // If needed, downscale image
-            float maxWidth = editedImage.size.width;
-            float maxHeight = editedImage.size.height;
+            float maxWidth = image.size.width;
+            float maxHeight = image.size.height;
             if ([self.options valueForKey:@"maxWidth"]) {
                 maxWidth = [[self.options valueForKey:@"maxWidth"] floatValue];
             }
             if ([self.options valueForKey:@"maxHeight"]) {
                 maxHeight = [[self.options valueForKey:@"maxHeight"] floatValue];
             }
-            editedImage = [self downscaleImageIfNecessary:editedImage maxWidth:maxWidth maxHeight:maxHeight];
+            image = [self downscaleImageIfNecessary:image maxWidth:maxWidth maxHeight:maxHeight];
 
             NSData *data;
-            if ([[[self.options objectForKey:@"imageFileType"] stringValue] isEqualToString:@"png"]) {
-                data = UIImagePNGRepresentation(editedImage);
+            if ([self willCompress]) {
+                data = UIImageJPEGRepresentation(image, [[self.options valueForKey:@"quality"] floatValue]);
             }
             else {
-                data = UIImageJPEGRepresentation(editedImage, [[self.options valueForKey:@"quality"] floatValue]);
+                data = UIImagePNGRepresentation(image);
             }
-            [data writeToFile:path atomically:YES];
 
             if (![[self.options objectForKey:@"noData"] boolValue]) {
                 NSString *dataString = [data base64EncodedStringWithOptions:0]; // base64 encoded image string
                 [self.response setObject:dataString forKey:@"data"];
             }
 
-            BOOL vertical = (editedImage.size.width < editedImage.size.height) ? YES : NO;
+            BOOL vertical = (image.size.width < image.size.height) ? YES : NO;
             [self.response setObject:@(vertical) forKey:@"isVertical"];
-            NSURL *fileURL = [NSURL fileURLWithPath:path];
-            NSString *filePath = [fileURL absoluteString];
-            [self.response setObject:filePath forKey:@"uri"];
+
+            if ([self willStoreMedia]) {
+                [self storeMediaAtPath:path data:data response:self.response];
+            }
 
             // add ref to the original image
             NSString *origURL = [imageURL absoluteString];
@@ -387,15 +384,8 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
               [self.response setObject:origURL forKey:@"origURL"];
             }
 
-            NSNumber *fileSizeValue = nil;
-            NSError *fileSizeError = nil;
-            [fileURL getResourceValue:&fileSizeValue forKey:NSURLFileSizeKey error:&fileSizeError];
-            if (fileSizeValue){
-                [self.response setObject:fileSizeValue forKey:@"fileSize"];
-            }
-
-            [self.response setObject:@(editedImage.size.width) forKey:@"width"];
-            [self.response setObject:@(editedImage.size.height) forKey:@"height"];
+            [self.response setObject:@(image.size.width) forKey:@"width"];
+            [self.response setObject:@(image.size.height) forKey:@"height"];
 
             NSDictionary *storageOptions = [self.options objectForKey:@"storageOptions"];
             if (storageOptions && [[storageOptions objectForKey:@"cameraRoll"] boolValue] == YES && self.picker.sourceType == UIImagePickerControllerSourceTypeCamera) {
@@ -684,6 +674,34 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
     else {
         NSLog(@"Error setting skip backup attribute: file not found");
         return NO;
+    }
+}
+
+- (BOOL)willCompress {
+  return ![[[self.options objectForKey:@"imageFileType"] stringValue] isEqualToString:@"png"];
+}
+
+- (BOOL)willStoreMedia
+{
+    NSDictionary *storageOptions = [self.options objectForKey:@"storageOptions"];
+    if (storageOptions && [[storageOptions objectForKey:@"store"] boolValue] == NO) {
+        return NO;
+    }
+
+    return YES;
+}
+
+- (void)storeMediaAtPath:(NSString*)path data:(NSData*)data response:(NSMutableDictionary*)response
+{
+    [data writeToFile:path atomically:YES];
+    NSURL *fileURL = [NSURL fileURLWithPath:path];
+    [response setObject:[fileURL absoluteString] forKey:@"uri"];
+
+    NSNumber *fileSizeValue = nil;
+    NSError *fileSizeError = nil;
+    [fileURL getResourceValue:&fileSizeValue forKey:NSURLFileSizeKey error:&fileSizeError];
+    if (fileSizeValue){
+        [response setObject:fileSizeValue forKey:@"fileSize"];
     }
 }
 
