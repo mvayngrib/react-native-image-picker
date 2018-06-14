@@ -342,7 +342,7 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
 
             // fix is really only needed for png
             // see: https://stackoverflow.com/questions/3554244/uiimagepngrepresentation-issues-images-rotated-by-90-degrees
-            if ([[self.options valueForKey:@"fixOrientation"] boolValue] != NO) {
+            if ([self.options objectForKey:@"fixOrientation"] == nil || [[self.options valueForKey:@"fixOrientation"] boolValue] != NO) {
                 image = [self fixOrientation:image];  // Rotate the image for upload to web
             }
 
@@ -683,7 +683,9 @@ RCT_EXPORT_METHOD(showImagePicker:(NSDictionary *)options callback:(RCTResponseS
 - (BOOL)willStoreMedia
 {
     NSDictionary *storageOptions = [self.options objectForKey:@"storageOptions"];
-    if (storageOptions && [[storageOptions objectForKey:@"store"] boolValue] == NO) {
+    if (storageOptions &&
+        [storageOptions objectForKey:@"store"] != nil &&
+        [[storageOptions objectForKey:@"store"] boolValue] == NO) {
         return NO;
     }
 
