@@ -1,5 +1,6 @@
-import { NativeModules } from 'react-native';
+'use strict'
 
+const { NativeModules } = require('react-native');
 const { ImagePickerManager } = NativeModules;
 
 const DEFAULT_OPTIONS = {
@@ -11,11 +12,10 @@ const DEFAULT_OPTIONS = {
   allowsEditing: false,
   permissionDenied: {
     title: 'Permission denied',
-    text:
-      'To be able to take pictures with your camera and choose images from your library.',
+    text: 'To be able to take pictures with your camera and choose images from your library.',
     reTryTitle: 're-try',
-    okTitle: "I'm sure",
-  },
+    okTitle: 'I\'m sure',
+  }
 };
 
 module.exports = {
@@ -25,9 +25,6 @@ module.exports = {
       callback = options;
       options = {};
     }
-    return ImagePickerManager.showImagePicker(
-      { ...DEFAULT_OPTIONS, ...options },
-      callback,
-    );
-  },
-};
+    return ImagePickerManager.showImagePicker({...DEFAULT_OPTIONS, ...options}, callback)
+  }
+}

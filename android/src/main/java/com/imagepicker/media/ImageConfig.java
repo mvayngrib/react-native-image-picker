@@ -20,7 +20,9 @@ public class ImageConfig
     public final int maxHeight;
     public final int quality;
     public final int rotation;
+    public final boolean store;
     public final boolean saveToCameraRoll;
+    public final boolean addToImageStore;
 
     public ImageConfig(@Nullable final File original,
                        @Nullable final File resized,
@@ -28,7 +30,9 @@ public class ImageConfig
                        final int maxHeight,
                        final int quality,
                        final int rotation,
-                       final boolean saveToCameraRoll)
+                       final boolean saveToCameraRoll,
+                       final boolean addToImageStore,
+                       final boolean store)
     {
         this.original = original;
         this.resized = resized;
@@ -36,7 +40,9 @@ public class ImageConfig
         this.maxHeight = maxHeight;
         this.quality = quality;
         this.rotation = rotation;
-        this.saveToCameraRoll = saveToCameraRoll;
+        this.saveToCameraRoll = store && saveToCameraRoll;
+        this.addToImageStore = addToImageStore;
+        this.store = store;
     }
 
     public @NonNull ImageConfig withMaxWidth(final int maxWidth)
@@ -44,7 +50,7 @@ public class ImageConfig
         return new ImageConfig(
                 this.original, this.resized, maxWidth,
                 this.maxHeight, this.quality, this.rotation,
-                this.saveToCameraRoll
+                this.saveToCameraRoll, this.addToImageStore, this.store
         );
     }
 
@@ -53,7 +59,7 @@ public class ImageConfig
         return new ImageConfig(
                 this.original, this.resized, this.maxWidth,
                 maxHeight, this.quality, this.rotation,
-                this.saveToCameraRoll
+                this.saveToCameraRoll, this.addToImageStore, this.store
         );
 
     }
@@ -63,7 +69,7 @@ public class ImageConfig
         return new ImageConfig(
                 this.original, this.resized, this.maxWidth,
                 this.maxHeight, quality, this.rotation,
-                this.saveToCameraRoll
+                this.saveToCameraRoll, this.addToImageStore, this.store
         );
     }
 
@@ -72,7 +78,7 @@ public class ImageConfig
         return new ImageConfig(
                 this.original, this.resized, this.maxWidth,
                 this.maxHeight, this.quality, rotation,
-                this.saveToCameraRoll
+                this.saveToCameraRoll, this.addToImageStore, this.store
         );
     }
 
@@ -88,7 +94,7 @@ public class ImageConfig
         return new ImageConfig(
                 original, this.resized, this.maxWidth,
                 this.maxHeight, quality, this.rotation,
-                this.saveToCameraRoll
+                this.saveToCameraRoll, this.addToImageStore, this.store
         );
     }
 
@@ -97,7 +103,7 @@ public class ImageConfig
         return new ImageConfig(
                 this.original, resized, this.maxWidth,
                 this.maxHeight, this.quality, this.rotation,
-                this.saveToCameraRoll
+                this.saveToCameraRoll, this.addToImageStore, this.store
         );
     }
 
@@ -106,7 +112,16 @@ public class ImageConfig
         return new ImageConfig(
                 this.original, this.resized, this.maxWidth,
                 this.maxHeight, this.quality, this.rotation,
-                saveToCameraRoll
+                saveToCameraRoll, this.addToImageStore, this.store
+        );
+    }
+
+    public @NonNull ImageConfig withAddToImageStore(@Nullable final boolean addToImageStore)
+    {
+        return new ImageConfig(
+                this.original, this.resized, this.maxWidth,
+                this.maxHeight, this.quality, this.rotation,
+                this.saveToCameraRoll, addToImageStore, this.store
         );
     }
 
@@ -133,6 +148,7 @@ public class ImageConfig
             rotation = (int) options.getDouble("rotation");
         }
         boolean saveToCameraRoll = false;
+        boolean store = true;
         if (options.hasKey("storageOptions"))
         {
             final ReadableMap storageOptions = options.getMap("storageOptions");
@@ -140,8 +156,19 @@ public class ImageConfig
             {
                 saveToCameraRoll = storageOptions.getBoolean("cameraRoll");
             }
+
+            if (storageOptions.hasKey("store"))
+            {
+                store = storageOptions.getBoolean("store");
+            }
         }
-        return new ImageConfig(this.original, this.resized, maxWidth, maxHeight, quality, rotation, saveToCameraRoll);
+
+        boolean addToImageStore = false;
+        if (options.hasKey("addToImageStore")) {
+            addToImageStore = options.getBoolean("addToImageStore");
+        }
+
+        return new ImageConfig(this.original, this.resized, maxWidth, maxHeight, quality, rotation, saveToCameraRoll, addToImageStore, store);
     }
 
     public boolean useOriginal(int initialWidth,

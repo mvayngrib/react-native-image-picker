@@ -6,6 +6,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
@@ -21,7 +22,6 @@ import android.text.TextUtils;
 import android.util.Base64;
 import android.util.Patterns;
 import android.webkit.MimeTypeMap;
-import android.content.pm.PackageManager;
 
 import com.facebook.react.ReactActivity;
 import com.facebook.react.bridge.ActivityEventListener;
@@ -30,9 +30,11 @@ import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableMap;
+import com.facebook.react.modules.core.PermissionAwareActivity;
+import com.facebook.react.modules.core.PermissionListener;
 import com.imagepicker.media.ImageConfig;
-import com.imagepicker.permissions.PermissionUtils;
 import com.imagepicker.permissions.OnImagePickerPermissionsCallback;
+import com.imagepicker.permissions.PermissionUtils;
 import com.imagepicker.utils.MediaUtils.ReadExifResult;
 import com.imagepicker.utils.RealPathUtil;
 import com.imagepicker.utils.UI;
@@ -48,12 +50,15 @@ import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.util.List;
 
-import com.facebook.react.modules.core.PermissionListener;
-import com.facebook.react.modules.core.PermissionAwareActivity;
+import io.tradle.reactimagestore.ImageStoreUtils;
 
-import static com.imagepicker.utils.MediaUtils.*;
+import static com.imagepicker.utils.MediaUtils.RolloutPhotoResult;
 import static com.imagepicker.utils.MediaUtils.createNewFile;
+import static com.imagepicker.utils.MediaUtils.fileScan;
 import static com.imagepicker.utils.MediaUtils.getResizedImage;
+import static com.imagepicker.utils.MediaUtils.readExifInterface;
+import static com.imagepicker.utils.MediaUtils.removeUselessFiles;
+import static com.imagepicker.utils.MediaUtils.rolloutPhotoFromCamera;
 
 public class ImagePickerModule extends ReactContextBaseJavaModule
         implements ActivityEventListener
@@ -73,8 +78,9 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
   private ReadableMap options;
   protected Uri cameraCaptureURI;
   private Boolean noData = false;
+  private Boolean doStore = true;
   private Boolean pickVideo = false;
-  private ImageConfig imageConfig = new ImageConfig(null, null, 0, 0, 100, 0, false);
+  private ImageConfig imageConfig = new ImageConfig(null, null, 0, 0, 100, 0, false, false, true);
 
   @Deprecated
   private int videoQuality = 1;
@@ -149,7 +155,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
 
     this.callback = callback;
     this.options = options;
-    imageConfig = new ImageConfig(null, null, 0, 0, 100, 0, false);
+    imageConfig = new ImageConfig(null, null, 0, 0, 100, 0, false, false, true);
 
     final AlertDialog dialog = UI.chooseDialog(this, options, new UI.OnAction()
     {
@@ -259,7 +265,11 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
       imageConfig = imageConfig.withOriginalFile(original);
 
       if (imageConfig.original != null) {
-        cameraCaptureURI = RealPathUtil.compatUriFromFile(reactContext, imageConfig.original);
+//        if (imageConfig.addToImageStore) {
+//          cameraCaptureURI = Uri.fromFile(original.getAbsolutePath());
+//        } else {
+          cameraCaptureURI = RealPathUtil.compatUriFromFile(reactContext, imageConfig.original);
+//        }
       }else {
         responseHelper.invokeError(callback, "Couldn't get file path for photo");
         return;
@@ -442,6 +452,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
     int initialHeight = options.outHeight;
     updatedResultResponse(uri, imageConfig.original.getAbsolutePath());
 
+    boolean resized = false;
     // don't create a new file if contraint are respected
     if (imageConfig.useOriginal(initialWidth, initialHeight, result.currentRotation))
     {
@@ -451,6 +462,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
     }
     else
     {
+      resized = true;
       imageConfig = getResizedImage(reactContext, this.options, imageConfig, initialWidth, initialHeight, requestCode);
       if (imageConfig.resized == null)
       {
@@ -487,6 +499,26 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
         responseHelper.putString("error", errorMessage);
         return;
       }
+    }
+
+    if (imageConfig.addToImageStore) {
+      File imageFile = resized ? imageConfig.resized : imageConfig.original;
+      String mimeType = "image/jpeg";
+      try {
+        Uri tmpPath = ImageStoreUtils.copyFileToTempFile(reactContext, Uri.fromFile(imageFile), mimeType);
+        responseHelper.putString("imageTag", tmpPath.toString());
+      } catch (IOException i) {
+        final String errorMessage = new StringBuilder("Error moving image to camera roll: ")
+                .append(i.getMessage()).toString();
+        responseHelper.putString("error", errorMessage);
+        responseHelper.invokeError(callback, errorMessage);
+        this.callback = null;
+        return;
+      }
+    }
+
+    if (imageConfig.store == false) {
+      removeUselessFiles(requestCode, imageConfig);
     }
 
     responseHelper.invokeResponse(callback);
@@ -715,6 +747,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule
       noData = options.getBoolean("noData");
     }
     imageConfig = imageConfig.updateFromOptions(options);
+    doStore = imageConfig.store;
     pickVideo = false;
     if (options.hasKey("mediaType") && options.getString("mediaType").equals("video")) {
       pickVideo = true;

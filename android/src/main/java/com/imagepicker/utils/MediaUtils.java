@@ -29,6 +29,8 @@ import java.text.SimpleDateFormat;
 import java.util.TimeZone;
 import java.util.UUID;
 
+import io.tradle.reactimagestore.ImageStoreUtils;
+
 import static com.imagepicker.ImagePickerModule.REQUEST_LAUNCH_IMAGE_CAPTURE;
 
 /**
@@ -46,14 +48,30 @@ public class MediaUtils
                 .append(".jpg")
                 .toString();
 
-        final File path = ReadableMapUtils.hasAndNotNullReadableMap(options, "storageOptions")
+
+//        if (options.hasKey("addToImageStore") && options.getBoolean("addToImageStore")) {
+//            try {
+//                return ImageStoreUtils.createTempFile(reactContext, "image/jpeg");
+//            } catch (IOException i) {
+//                i.printStackTrace();
+//                return null;
+//            }
+//        }
+
+        String specifiedPath = ReadableMapUtils.hasAndNotNullReadableMap(options, "storageOptions")
                 && ReadableMapUtils.hasAndNotEmptyString(options.getMap("storageOptions"), "path")
-                ? new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), options.getMap("storageOptions").getString("path"))
-                : (!forceLocal ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
-                              : reactContext.getExternalFilesDir(Environment.DIRECTORY_PICTURES));
+                ? options.getMap("storageOptions").getString("path") : null;
+
+        File path;
+        if (specifiedPath != null) {
+            path = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), specifiedPath);
+        } else if (forceLocal) {
+            path = reactContext.getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        } else {
+            path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+        }
 
         File result = new File(path, filename);
-
         try
         {
             path.mkdirs();
